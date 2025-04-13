@@ -59,5 +59,7 @@ void main()
     vec4 textureColor = texture(texturaSampler, texCoord);  // Cargar con RGBA
     
     FragColor  = vec4((ambient + diffuse + specular + diffuseFaro) * textureColor.rgb, textureColor.a);
+    
+    
     }
 

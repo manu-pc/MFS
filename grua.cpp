@@ -8,6 +8,7 @@
 
 #include <glad/glad.h>
 #include <GLFW/glfw3.h>
+#include <iomanip>
 #include <stdio.h>
 #include <math.h>
 #include <iostream>
@@ -16,7 +17,8 @@
 #include <glm/gtc/type_ptr.hpp>
 #include "lecturaShader_0_9.h"
 #include "dibujo.h"
-
+#include "colores.h"
+using namespace std;
 #define STB_IMAGE_IMPLEMENTATION
 #include "stb_image.h"
 
@@ -46,7 +48,7 @@ GLfloat anguloRuedaX = 0.0f; //! orientacion parcial roda para simular xiro
 //? variables camara
 int tipoCamara = 0; // 0: perspectiva, 1: primera persona
 float alfa = 0.5;
-float beta = 0.5;
+float bbeta = 0.5;
 float dist_camara = 80.0f;
 float vel_camara = 0.01f;
 
@@ -72,11 +74,13 @@ unsigned int texturaMapa;
 
 //* mapa obj
 tinyobj::attrib_t attrib;
-std::vector<tinyobj::shape_t> shapes;
-std::vector<tinyobj::material_t> materials;
-std::vector<float> vertexData; // pos + texcoord per vertex
-std::string warn, err;
+vector<tinyobj::shape_t> shapes;
+vector<tinyobj::material_t> materials;
+vector<float> vertexData;
+int numVertices;
+string warn, err;
 #define filename_mapa "mapa/terrenoMZ.obj"
+#define textura_mapa "mapa/texturaMZ.obj"
 
 extern GLuint setShaders(const char *nVertx, const char *nFrag);
 GLuint shaderProgram;
@@ -114,6 +118,23 @@ double t1;
 double tdelta;
 int nbFrames = 0;
 
+void barraCarga(size_t valor, size_t total, int tamano)
+{
+	float progreso = static_cast<float>(valor) / total;
+	int pos = static_cast<int>(progreso * tamano);
+
+	cout << "\r[";
+	for (int i = 0; i < tamano; ++i)
+	{
+		if (i < pos)
+			cout << "|";
+		else
+			cout << " ";
+	}
+	cout << "] " << fixed << setprecision(1) << (progreso * 100.0f) << "%";
+	cout.flush();
+}
+
 void tiempo()
 {
 	static float sec = 0;
@@ -124,7 +145,7 @@ void tiempo()
 
 	if (sec >= 1.0)
 	{
-		std::cout << "FPS: " << nbFrames << std::endl;
+		cout << "FPS: " << nbFrames << endl;
 		nbFrames = 0;
 		sec = 0;
 	}
@@ -136,7 +157,7 @@ void camara()
 {
 
 	glUseProgram(shaderProgram);
-	glm::mat4 projection = glm::perspective(glm::radians(45.0f), (float)w_width / (float)w_height, 0.1f, (float)dist_camara * 20);
+	glm::mat4 projection = glm::perspective(glm::radians(45.0f), (float)w_width / (float)w_height, 0.1f, (float)dist_camara * 200);
 	unsigned int projectionLoc = glGetUniformLocation(shaderProgram, "projection");
 	glUniformMatrix4fv(projectionLoc, 1, GL_FALSE, glm::value_ptr(projection));
 	glm::vec3 cameraPos, target;
@@ -144,9 +165,9 @@ void camara()
 	if (tipoCamara == 0) //! perspectiva (fija)
 	{
 		cameraPos = glm::vec3(
-			(float)dist_camara * sin(alfa) * cos(beta),
-			(float)dist_camara * sin(beta),
-			(float)dist_camara * cos(alfa) * cos(beta));
+			(float)dist_camara * sin(alfa) * cos(bbeta),
+			(float)dist_camara * sin(bbeta),
+			(float)dist_camara * cos(alfa) * cos(bbeta));
 
 		target = glm::vec3(0.0f, 0.0f, 0.0f);
 	}
@@ -178,9 +199,9 @@ void camara()
 	if (tipoCamara == 3) //! perspectiva, mirando a grúa
 	{
 		cameraPos = glm::vec3(
-			(float)dist_camara * sin(alfa) * cos(beta),
-			(float)dist_camara * sin(beta),
-			(float)dist_camara * cos(alfa) * cos(beta));
+			(float)dist_camara * sin(alfa) * cos(bbeta),
+			(float)dist_camara * sin(bbeta),
+			(float)dist_camara * cos(alfa) * cos(bbeta));
 
 		target = glm::vec3(
 			base.posicion.x,
@@ -281,7 +302,7 @@ void cargarTextura(unsigned int &textura, const char *filename)
 	}
 	else
 	{
-		std::cout << "Error al cargar la textura" << std::endl;
+		cout << "Error al cargar la textura" << endl;
 	}
 	stbi_image_free(data);
 }
@@ -305,7 +326,7 @@ void cargarTexturaPNG(unsigned int &textura, const char *filename)
 	}
 	else
 	{
-		std::cout << "Error al cargar la textura" << std::endl;
+		cout << "Error al cargar la textura" << endl;
 	}
 	stbi_image_free(data);
 }
@@ -584,11 +605,10 @@ void dibujarMapa()
 	glBindVertexArray(VAOMapa);
 	glBindTexture(GL_TEXTURE_2D, texturaMapa);
 
-	glm::mat4 transform = glm::mat4(1.0f);
-	transform = glm::scale(transform, glm::vec3(100000, 100, 100000));
-	glUniformMatrix4fv(transformLoc, 1, GL_FALSE, glm::value_ptr(transform));
+	glm::mat4 transform = glm::mat4(1.0f); // Sin escala	
 
-	glDrawArrays(GL_TRIANGLES, 0, vertexData.size() / 5); // count = number of vertices
+	glUniformMatrix4fv(transformLoc, 1, GL_FALSE, glm::value_ptr(transform));
+	glDrawArrays(GL_TRIANGLES, 0, numVertices); // count = number of vertices
 }
 
 void display()
@@ -661,30 +681,57 @@ void display()
 //*
 void cargarMapa()
 {
-
 	bool ret = tinyobj::LoadObj(&attrib, &shapes, &materials, &warn, &err,
-								"./mapa/terrenoMZ.obj", "./mapa", true);
+								filename_mapa, "./mapa", true);
 
 	if (!warn.empty())
-		std::cout << "WARN: " << warn << std::endl;
+		cout << "WARN: " << warn << endl;
 	if (!err.empty())
-		std::cerr << "ERR: " << err << std::endl;
+		cerr << "ERR: " << err << endl;
 	if (!ret)
 		exit(1);
+
+	size_t totalIndices = 0;
+	size_t indicesProcesados = 0;
+	for (const auto &shape : shapes)
+		totalIndices += shape.mesh.indices.size();
 
 	for (const auto &shape : shapes)
 	{
 		for (const auto &index : shape.mesh.indices)
 		{
+
+			// Posiciones (v)
 			float vx = attrib.vertices[3 * index.vertex_index + 0];
 			float vy = attrib.vertices[3 * index.vertex_index + 1];
 			float vz = attrib.vertices[3 * index.vertex_index + 2];
-			float tx = attrib.texcoords[2 * index.texcoord_index + 0];
-			float ty = attrib.texcoords[2 * index.texcoord_index + 1];
 
-			vertexData.insert(vertexData.end(), {vx, vy, vz, tx, ty});
+			// Normales (vn)
+			float nx = 0.0f, ny = 0.0f, nz = 0.0f;
+			if (index.normal_index >= 0)
+			{
+				nx = attrib.normals[3 * index.normal_index + 0];
+				ny = attrib.normals[3 * index.normal_index + 1];
+				nz = attrib.normals[3 * index.normal_index + 2];
+			}
+
+			// Coordenadas de textura (vt)
+			float tx = 0.0f, ty = 0.0f;
+			if (index.texcoord_index >= 0)
+			{
+				tx = attrib.texcoords[2 * index.texcoord_index + 0];
+				ty = attrib.texcoords[2 * index.texcoord_index + 1];
+			}
+
+			// Intercalamos: posición (3) + normal (3) + texcoord (2)
+			vertexData.insert(vertexData.end(), {vx, vy, vz, nx, ny, nz, tx, ty});
+
+			++indicesProcesados;
+			if (indicesProcesados % 500 == 0 || indicesProcesados == totalIndices) // actualiza cada 500
+				barraCarga(indicesProcesados, totalIndices, 50);
 		}
 	}
+	cout << endl;
 	GLuint VBO;
 	glGenVertexArrays(1, &VAOMapa);
 	glGenBuffers(1, &VBO);
@@ -693,15 +740,19 @@ void cargarMapa()
 	glBindBuffer(GL_ARRAY_BUFFER, VBO);
 	glBufferData(GL_ARRAY_BUFFER, vertexData.size() * sizeof(float), vertexData.data(), GL_STATIC_DRAW);
 
-	// position (3 floats)
-	glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 5 * sizeof(float), (void *)0);
+	// layout(location = 0): posición
+	glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 8 * sizeof(float), (void *)0);
 	glEnableVertexAttribArray(0);
 
-	// texcoord (2 floats)
-	glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 5 * sizeof(float), (void *)(3 * sizeof(float)));
+	// layout(location = 1): normales
+	glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 8 * sizeof(float), (void *)(3 * sizeof(float)));
 	glEnableVertexAttribArray(1);
 
-	cargarTextura(texturaMapa, "mapa/texturaMZ.png");
+	// layout(location = 2): textura
+	glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, 8 * sizeof(float), (void *)(6 * sizeof(float)));
+	glEnableVertexAttribArray(2);
+	numVertices = vertexData.size() / 8;
+	cargarTexturaPNG(texturaMapa, "mapa/texturaMZ.png");
 }
 
 void openGlInit()
@@ -728,11 +779,10 @@ int main()
 	glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
 	glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
 	glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
-
-	GLFWwindow *window = glfwCreateWindow(w_width, w_height, "Grúa", NULL, NULL);
+	GLFWwindow *window = glfwCreateWindow(w_width, w_height, "sputnik", NULL, NULL);
 	if (window == NULL)
 	{
-		std::cout << "Error al crear la ventana" << std::endl;
+		cout << "Error al crear la ventana" << endl;
 		glfwTerminate();
 		return -1;
 	}
@@ -741,7 +791,7 @@ int main()
 	glfwSetFramebufferSizeCallback(window, cambioTamaño);
 	if (!gladLoadGLLoader((GLADloadproc)glfwGetProcAddress))
 	{
-		std::cout << "Error al inicializar GLAD" << std::endl;
+		cout << "Error al inicializar GLAD" << endl;
 		return -1;
 	}
 
@@ -882,14 +932,14 @@ void entradaTeclado(GLFWwindow *window)
 		tipoCamara = 3;
 	}
 	if (glfwGetKey(window, GLFW_KEY_UP) == GLFW_PRESS)
-		if (beta <= 1.5f)
+		if (bbeta <= 1.5f)
 		{
-			beta += vel_camara;
+			bbeta += vel_camara;
 		}
 	if (glfwGetKey(window, GLFW_KEY_DOWN) == GLFW_PRESS)
-		if (beta >= 0.1f)
+		if (bbeta >= 0.1f)
 		{
-			beta -= vel_camara;
+			bbeta -= vel_camara;
 		}
 	if ((glfwGetKey(window, GLFW_KEY_T) == GLFW_PRESS) && !mantenerTeclaT)
 	{
