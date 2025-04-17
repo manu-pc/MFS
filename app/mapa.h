@@ -9,6 +9,5 @@
 // alturaMaxima: Altura máxima que se mapeará desde los valores del heightmap.
 // Devuelve el número de vértices generados.
 GLuint cargarTerrenoDesdePNG(const char* archivo, GLuint *VAOMapa, float alturaMaxima = 30.0f);
-GLuint cargarMapaDesdeRAW(const char* archivo, GLuint *VAOMapa, float alturaMaxima = 30.0f);
 
 #endif // MAPA_H

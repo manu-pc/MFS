@@ -23,28 +23,33 @@ using namespace std;
 #define STB_IMAGE_IMPLEMENTATION
 #include "stb_image.h"
 
-#define TINYOBJLOADER_IMPLEMENTATION
-#include "tiny_obj_loader.h"
-
 #define pi 3.14159265359
 #define MAP_LIMIT 999999999
 
 //? constantes grua
 #define VEL_MAX 60
 #define ACEL .5
-#define FRENADO 0.3
+#define FRENADO 0.005
 #define REV_MAX -10
 #define GIRO_MAX 60
 #define VEL_GIRO 1
 #define AMORTIGUACION 0.9f
 #define INCLIN_MAX 30.0f
 #define VEL_INCLIN 1.0f
+#define MAX_PITCH 30.0f
+#define MAX_ROLL 45.0f
+#define MAX_YAW 90.0f
+#define PITCH_SPEED .4f
+#define ROLL_SPEED 1.0f
+#define YAW_SPEED 1.5f
+#define YAW_BANK_EFFECT 0.2f
 
 //? variables grua
 float velocidad = 0;
 float ang_giro = 0;
-GLfloat anguloRuedaZ = 0.0f; //! rotacion roda para simular desplazamiento
-GLfloat anguloRuedaX = 0.0f; //! orientacion parcial roda para simular xiro
+float pitch = 0.0f; // rotation around X-axis
+float yaw = 0.0f;	// rotation around Y-axis
+float roll = 0.0f;	// rotation around Z-axis
 //? variables camara
 int tipoCamara = 0; // 0: perspectiva, 1: primera persona
 float alfa = 0.5;
@@ -52,7 +57,6 @@ float bbeta = 0.5;
 float dist_camara = 80.0f;
 float vel_camara = 0.01f;
 
- 
 //? variables ventana
 int w_width = 1600;
 int w_height = 900;
@@ -71,7 +75,6 @@ unsigned int texturaSuelo;
 unsigned int texturaCarretera;
 unsigned int texturaEsquinaCarretera;
 unsigned int texturaTronco;
-unsigned int texturaRoda;
 unsigned int texturaMapa;
 
 string warn, err;
@@ -84,19 +87,20 @@ GLuint shaderProgram;
 typedef struct
 {
 	glm::vec3 posicion;
-	float angulo_real;
+	float angulo_XZ;
 	float inclinacion;
+	float rotacion;
 	float velocidad;
 	glm::vec3 escala;
 	unsigned int textura;
 	unsigned int VAO;
 } parteGrua;
 
-parteGrua base = {{0, 1.5, 0.5}, 0, 0, 0, {4, 2, 10}, 0, 0};
-parteGrua cabina = {{0.0, 2.5, 4}, 0, 0, 0, {4.0f, 3.0f, 2.0}, 0, 0};
-parteGrua ventana = {{0.0, 2.5, 4.5}, 0, 0, 0, {3.9f, 1.9f, 1.9}, 0, 0};
-parteGrua faroI = {{-1.4, 0.2, 5.0}, 0, 90, 0, {0.6, 0.3, 0.5}, 0, 0}; // Izquierdo
-parteGrua faroD = {{1.4, 0.2, 5.0}, 0, 90, 0, {0.6, 0.3, 0.5}, 0, 0};  // Derecho
+parteGrua base = {{0, 1.5, 0.5}, 0, 0, 0, 0, {4, 2, 10}, 0, 0};
+parteGrua cabina = {{0.0, 2.5, 4}, 0, 0, 0, 0, {4.0f, 3.0f, 2.0}, 0, 0};
+parteGrua ventana = {{0.0, 2.5, 4.5}, 0, 0, 0, 0, {3.9f, 1.9f, 1.9}, 0, 0};
+parteGrua faroI = {{-1.4, 0.2, 5.0}, 0, 90, 0, 0, {0.6, 0.3, 0.5}, 0, 0}; // Izquierdo
+parteGrua faroD = {{1.4, 0.2, 5.0}, 0, 90, 0, 0, {0.6, 0.3, 0.5}, 0, 0};  // Derecho
 unsigned int VAO;
 unsigned int VAOCuadradoXZ;
 unsigned int VAOEsfera;
@@ -105,9 +109,9 @@ unsigned int VAOCarretera;
 unsigned int VAOEsquina;
 unsigned int VAOMapa;
 
-double t0 = glfwGetTime();
-double t1;
-double tdelta;
+float t0 = glfwGetTime();
+float t1;
+float tdelta;
 int nbFrames = 0;
 
 void barraCarga(size_t valor, size_t total, int tamano)
@@ -147,6 +151,11 @@ void tiempo()
 //! cámara
 void camara()
 {
+	glm::vec3 direccion;
+	direccion.x = cos(glm::radians(base.inclinacion)) * sin(glm::radians(base.angulo_XZ));
+	direccion.y = -sin(glm::radians(base.inclinacion));
+	direccion.z = cos(glm::radians(base.inclinacion)) * cos(glm::radians(base.angulo_XZ));
+	direccion = glm::normalize(direccion);
 
 	glUseProgram(shaderProgram);
 	glm::mat4 projection = glm::perspective(glm::radians(45.0f), (float)w_width / (float)w_height, 0.1f, (float)dist_camara * 200);
@@ -171,17 +180,17 @@ void camara()
 			base.posicion.z);
 
 		target = cameraPos + glm::vec3(
-								 20 * sin(glm::radians(base.angulo_real)),
+								 20 * sin(glm::radians(base.angulo_XZ)),
 								 0,
-								 20 * cos(glm::radians(base.angulo_real)));
+								 20 * cos(glm::radians(base.angulo_XZ)));
 	}
 
 	if (tipoCamara == 2) //! tercera persona
 	{
 		cameraPos = glm::vec3(
-			base.posicion.x - 50 * sin(glm::radians(base.angulo_real)),
+			base.posicion.x - 50 * direccion.x,
 			base.posicion.y + 13,
-			base.posicion.z - 50 * cos(glm::radians(base.angulo_real)));
+			base.posicion.z - 50 * direccion.z);
 
 		target = glm::vec3(
 			base.posicion.x,
@@ -211,40 +220,24 @@ void camara()
 //? --- funcións movimiento grúa ---
 //? simula a gravidade no brazo, que cae cara onde esté inclinado
 
-
 //? simula o xiro da grúa, que se move en función da velocidade da base
-void ajustar_giro()
-{
-
-
-
-	base.angulo_real += glm::radians(anguloRuedaX);
-
-
-	//? se o camion está en movimiento, a palanca tende ir a direccion contraria a que se move, por inercia
-	//? se está quieto a palanca tende a seguir na direccion na que está inclinada por gravedad
-}
 
 //? actualiza a posición da grúa en función da velocidade e controla os límites do mapa
 void movimiento()
 {
-	if (abs(base.velocidad) > 0)
-		ajustar_giro();
-
-	base.posicion.x = base.posicion.x + base.velocidad * sin(glm::radians(base.angulo_real)) * tdelta;
-	base.posicion.z = base.posicion.z + base.velocidad * cos(glm::radians(base.angulo_real)) * tdelta;
-
-	if (base.posicion.x > MAP_LIMIT)
-		base.posicion.x = -MAP_LIMIT;
-	if (base.posicion.x < -MAP_LIMIT)
-		base.posicion.x = MAP_LIMIT;
-	if (base.posicion.z > MAP_LIMIT)
-		base.posicion.z = -MAP_LIMIT;
-	if (base.posicion.z < -MAP_LIMIT)
-		base.posicion.z = MAP_LIMIT;
-	anguloRuedaZ += base.velocidad / 3;
-	if (anguloRuedaZ >= 360)
-		anguloRuedaZ = 0;
+	if (fabs(base.rotacion) > 10)
+	{
+		yaw -= base.rotacion * 0.01;
+	}
+	base.inclinacion = pitch;
+	base.angulo_XZ = yaw;
+	base.rotacion = roll;
+	glm::vec3 direccion;
+	direccion.x = cos(glm::radians(base.inclinacion)) * sin(glm::radians(base.angulo_XZ));
+	direccion.y = -sin(glm::radians(base.inclinacion));
+	direccion.z = cos(glm::radians(base.inclinacion)) * cos(glm::radians(base.angulo_XZ));
+	direccion = glm::normalize(direccion);
+	base.posicion += direccion * base.velocidad * tdelta;
 }
 
 //* texturas
@@ -295,116 +288,6 @@ void cargarTexturaPNG(unsigned int &textura, const char *filename)
 	}
 	stbi_image_free(data);
 }
-//* debuxa unha carretera con liñas de separacion de carril
-void dibujarCarretera(glm::vec3 pos, float rot, float tam)
-{
-	glm::mat4 transform;
-	glBindTexture(GL_TEXTURE_2D, texturaCarretera);
-
-	unsigned int transformLoc = glGetUniformLocation(shaderProgram, "model");
-
-	transform = glm::mat4(1.0f);
-	transform = glm::translate(transform, pos);
-	transform = glm::rotate(transform, glm::radians(rot), glm::vec3(0.0f, 1.0f, 0.0f));
-	transform = glm::scale(transform, glm::vec3(tam, 0.05, 45));
-	glUniformMatrix4fv(transformLoc, 1, GL_FALSE, glm::value_ptr(transform));
-	glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
-	glBindVertexArray(VAOCarretera);
-	glDrawArrays(GL_TRIANGLES, 0, 6);
-}
-void dibujarEsquinaCarretera(glm::vec3 pos, float rot, float tam)
-{
-	glm::mat4 transform;
-	glBindTexture(GL_TEXTURE_2D, texturaEsquinaCarretera);
-	unsigned int transformLoc = glGetUniformLocation(shaderProgram, "model");
-
-	transform = glm::mat4(1.0f);
-	transform = glm::translate(transform, pos);
-	transform = glm::rotate(transform, glm::radians(rot), glm::vec3(0.0f, 1.0f, 0.0f));
-	transform = glm::scale(transform, glm::vec3(tam, 0.05, tam));
-	glUniformMatrix4fv(transformLoc, 1, GL_FALSE, glm::value_ptr(transform));
-	glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
-	glBindVertexArray(VAOEsquina);
-	glDrawArrays(GL_TRIANGLES, 0, 6);
-}
-
-//* debuxa un arbol cun tronco de cubo e unha copa de 3 esferas
-void dibujarArbol(glm::vec3 pos, float escala)
-{
-	glm::mat4 transform;
-	glm::mat4 stack;
-	unsigned int transformLoc = glGetUniformLocation(shaderProgram, "model");
-
-	//* tronco
-	glBindTexture(GL_TEXTURE_2D, texturaTronco);
-	transform = glm::mat4(1.0f);
-	transform = glm::translate(transform, pos);
-	stack = transform;
-	transform = glm::scale(transform, glm::vec3(escala * 1.5, escala * 8, escala * 1.5));
-	glUniformMatrix4fv(transformLoc, 1, GL_FALSE, glm::value_ptr(transform));
-	glBindVertexArray(VAOCubo);
-	glDrawArrays(GL_TRIANGLES, 0, 36);
-
-	glm::vec3 colorCopa(0.0f, 0.5f, 0.0f);
-	float desplazamiento = escala * 2.5;
-
-	//* follas: usan a textura da herba
-	glBindTexture(GL_TEXTURE_2D, texturaSuelo);
-
-	glm::vec3 posicionesCopa[3] = {
-		glm::vec3(-escala, desplazamiento * 2, 0), // Esfera izquierda
-		glm::vec3(escala, desplazamiento * 2, 0),  // Esfera derecha
-		glm::vec3(0, desplazamiento * 3, 0)		   // Esfera superior
-	};
-
-	for (int i = 0; i < 3; i++)
-	{
-		transform = stack;
-		transform = glm::translate(transform, posicionesCopa[i]);
-		transform = glm::scale(transform, glm::vec3(escala * 2.5, escala * 2.5, escala * 2.5));
-		glUniformMatrix4fv(transformLoc, 1, GL_FALSE, glm::value_ptr(transform));
-		glBindVertexArray(VAOEsfera);
-		glDrawArrays(GL_TRIANGLES, 0, 1080);
-	}
-}
-
-//* debuxa unha farola
-void dibujarFarola(glm::vec3 pos, float escala)
-{
-	glm::mat4 transform;
-	glm::mat4 stack;
-	unsigned int transformLoc = glGetUniformLocation(shaderProgram, "model");
-	unsigned int colorLoc = glGetUniformLocation(shaderProgram, "objectColor");
-
-	//* pao?
-	glBindTexture(GL_TEXTURE_2D, texturaRoda);
-	transform = glm::mat4(1.0f);
-	transform = glm::translate(transform, pos);
-	stack = transform;
-	transform = glm::scale(transform, glm::vec3(escala * 1.5, escala * 32, escala * 1.5));
-	glUniformMatrix4fv(transformLoc, 1, GL_FALSE, glm::value_ptr(transform));
-	glUniform3fv(colorLoc, 1, glm::value_ptr(glm::vec3(0.2, 0.2, 0.2f))); // gris
-	glBindVertexArray(VAOCubo);
-	glDrawArrays(GL_TRIANGLES, 0, 36);
-
-	glm::vec3 colorCopa(0.8f, 0.8f, 0.8f);
-
-	//* bombilla
-	glBindTexture(GL_TEXTURE_2D, ventana.textura);
-
-	transform = stack;
-	transform = glm::translate(transform, glm::vec3(0, escala * 18, 0));
-	transform = glm::scale(transform, glm::vec3(escala * 3, escala * 4, escala * 3));
-	glUniformMatrix4fv(transformLoc, 1, GL_FALSE, glm::value_ptr(transform));
-	glUniform3fv(colorLoc, 1, glm::value_ptr(colorCopa));
-	glBindVertexArray(VAOCubo);
-	glDrawArrays(GL_TRIANGLES, 0, 36);
-
-	if (momentoDia == 2)
-	{
-		// lol
-	}
-}
 
 //* función que debuxa unha parte da grúa
 // precisa os punteiros ás matrices de transformación e un stack
@@ -417,8 +300,11 @@ void dibujarParteGrua(parteGrua parte, glm::mat4 *transform, glm::mat4 *stack, i
 	*transform = *stack;
 
 	*transform = glm::translate(*transform, parte.posicion);
+	*transform = glm::rotate(*transform, glm::radians(parte.angulo_XZ), glm::vec3(0.0f, 1.0f, 0.0f));
+
 	*transform = glm::rotate(*transform, glm::radians(parte.inclinacion), glm::vec3(1.0f, 0.0f, 0.0f));
-	*transform = glm::rotate(*transform, glm::radians(parte.angulo_real), glm::vec3(0.0f, 1.0f, .0f));
+	*transform = glm::rotate(*transform, glm::radians(parte.rotacion), glm::vec3(0.0f, 0.0f, 1.0f));
+
 	if (modificarStack)
 		*stack = *transform;
 
@@ -432,49 +318,6 @@ void dibujarParteGrua(parteGrua parte, glm::mat4 *transform, glm::mat4 *stack, i
 		glDrawArrays(GL_TRIANGLES, 0, 1080);
 }
 
-//* debuxa as rodas da grúa
-void dibujarRuedas()
-{
-
-	glm::mat4 transform;
-	glm::mat4 stack;
-	unsigned int transformLoc = glGetUniformLocation(shaderProgram, "model");
-	unsigned int colorLoc = glGetUniformLocation(shaderProgram, "objectColor");
-
-	glUniform3fv(colorLoc, 1, glm::value_ptr(glm::vec3(0.0, 0.0, 0.0)));
-
-	transform = glm::mat4(1.0f);
-	transform = glm::translate(transform, glm::vec3(base.posicion.x, base.posicion.y, base.posicion.z));
-	transform = glm::rotate(transform, glm::radians(base.angulo_real - 90), glm::vec3(0.0f, 1.0f, 0.0f));
-	stack = transform;
-
-	glm::vec3 escalaRueda(1.5f, 1.5f, 0.5f);
-	float radioRueda = 0.5f;
-
-	glBindTexture(GL_TEXTURE_2D, texturaRoda);
-
-	glm::vec3 posiciones[4] = {
-		{3.5f, -radioRueda, 2.0f},
-		{3.5f, -radioRueda, -2.0f},
-		{-3.5f, -radioRueda, 2.0f},
-		{-3.5f, -radioRueda, -2.0f}};
-
-	for (int i = 0; i < 4; i++)
-	{
-		transform = stack;
-		transform = glm::translate(transform, posiciones[i]);
-		if (i < 2)
-			// as rodas de diante xiran segun a direccion
-			// reducido por 1.2f para que non xire demasiado (queda raro)
-			transform = glm::rotate(transform, glm::radians(anguloRuedaX / 1.2f), glm::vec3(0.0f, 1.0f, 0.0f));
-		transform = glm::rotate(transform, glm::radians(-anguloRuedaZ), glm::vec3(0.0f, 0.0f, 1.0f));
-
-		transform = glm::scale(transform, escalaRueda); // Aplicar escala
-		glUniformMatrix4fv(transformLoc, 1, GL_FALSE, glm::value_ptr(transform));
-		glBindVertexArray(VAOCubo);
-		glDrawArrays(GL_TRIANGLES, 0, 36);
-	}
-}
 void dibujarSol()
 {
 	unsigned int solDir = glGetUniformLocation(shaderProgram, "solDir");
@@ -529,11 +372,11 @@ void luzFaros()
 	unsigned int faroCorteLoc = glGetUniformLocation(shaderProgram, "faroCorte");
 	unsigned int faroBordeSuaveLoc = glGetUniformLocation(shaderProgram, "faroBordeSuave");
 
-	glUniform3f(faroPosLoc, base.posicion.x + 3.1 * sin(glm::radians(base.angulo_real)),
+	glUniform3f(faroPosLoc, base.posicion.x + 3.1 * sin(glm::radians(base.angulo_XZ)),
 				base.posicion.y + 1,
-				base.posicion.z + 3.2 * cos(glm::radians(base.angulo_real)));
+				base.posicion.z + 3.2 * cos(glm::radians(base.angulo_XZ)));
 	glUniform3f(faroColorLoc, 1.0, 0.9, 0.7);
-	float angulo_radianes = glm::radians(base.angulo_real - 90);
+	float angulo_radianes = glm::radians(base.angulo_XZ - 90);
 	glm::vec3 faroDireccion = glm::normalize(glm::vec3(-glm::cos(-angulo_radianes), 0.4f, -glm::sin(-angulo_radianes)));
 	glUniform3fv(faroDireccionLoc, 1, glm::value_ptr(faroDireccion));
 
@@ -563,7 +406,7 @@ void dibujarMapa(GLuint numVertices)
 
 	glUseProgram(shaderProgram);
 	glBindVertexArray(VAOMapa);
-	
+
 	glBindTexture(GL_TEXTURE_2D, texturaMapa);
 
 	glm::mat4 transform = glm::mat4(1.0f); // Sin escala
@@ -585,8 +428,6 @@ void display()
 	dibujarSol();
 	luzFaros();
 
-
-
 	dibujarMapa(numVertices);
 
 	//* grua
@@ -595,90 +436,11 @@ void display()
 	dibujarParteGrua(ventana, &transform, &stack, 0);
 	dibujarParteGrua(faroI, &transform, &stack, 0);
 	dibujarParteGrua(faroD, &transform, &stack, 0);
+
 	//* ruedas
-	dibujarRuedas();
+	// roubaronmas en ribeira
 
 	glBindVertexArray(0);
-}
-
-//*
-void cargarMapaObj()
-{
-	tinyobj::attrib_t attrib;
-	vector<tinyobj::shape_t> shapes;
-	vector<tinyobj::material_t> materials;
-	vector<float> vertexData;
-	bool ret = tinyobj::LoadObj(&attrib, &shapes, &materials, &warn, &err,
-								filename_mapa, "./mapa", true);
-
-	if (!warn.empty())
-		cout << "WARN: " << warn << endl;
-	if (!err.empty())
-		cerr << "ERR: " << err << endl;
-	if (!ret)
-		exit(1);
-
-	size_t totalIndices = 0;
-	size_t indicesProcesados = 0;
-	for (const auto &shape : shapes)
-		totalIndices += shape.mesh.indices.size();
-
-	for (const auto &shape : shapes)
-	{
-		for (const auto &index : shape.mesh.indices)
-		{
-
-			// Posiciones (v)
-			float vx = attrib.vertices[3 * index.vertex_index + 0];
-			float vy = attrib.vertices[3 * index.vertex_index + 1];
-			float vz = attrib.vertices[3 * index.vertex_index + 2];
-
-			// Normales (vn)
-			float nx = 0.0f, ny = 0.0f, nz = 0.0f;
-			if (index.normal_index >= 0)
-			{
-				nx = attrib.normals[3 * index.normal_index + 0];
-				ny = attrib.normals[3 * index.normal_index + 1];
-				nz = attrib.normals[3 * index.normal_index + 2];
-			}
-
-			// Coordenadas de textura (vt)
-			float tx = 0.0f, ty = 0.0f;
-			if (index.texcoord_index >= 0)
-			{
-				tx = attrib.texcoords[2 * index.texcoord_index + 0];
-				ty = attrib.texcoords[2 * index.texcoord_index + 1];
-			}
-
-			// Intercalamos: posición (3) + normal (3) + texcoord (2)
-			vertexData.insert(vertexData.end(), {vx, vy, vz, nx, ny, nz, tx, ty});
-
-			++indicesProcesados;
-			if (indicesProcesados % 500 == 0 || indicesProcesados == totalIndices) // actualiza cada 500
-				barraCarga(indicesProcesados, totalIndices, 50);
-		}
-	}
-	cout << endl;
-	GLuint VBO;
-	glGenVertexArrays(1, &VAOMapa);
-	glGenBuffers(1, &VBO);
-
-	glBindVertexArray(VAOMapa);
-	glBindBuffer(GL_ARRAY_BUFFER, VBO);
-	glBufferData(GL_ARRAY_BUFFER, vertexData.size() * sizeof(float), vertexData.data(), GL_STATIC_DRAW);
-
-	// layout(location = 0): posición
-	glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 8 * sizeof(float), (void *)0);
-	glEnableVertexAttribArray(0);
-
-	// layout(location = 1): normales
-	glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 8 * sizeof(float), (void *)(3 * sizeof(float)));
-	glEnableVertexAttribArray(1);
-
-	// layout(location = 2): textura
-	glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, 8 * sizeof(float), (void *)(6 * sizeof(float)));
-	glEnableVertexAttribArray(2);
-	cargarTexturaPNG(texturaMapa, "mapa/texturaMZ.png");
 }
 
 void openGlInit()
@@ -697,7 +459,7 @@ void cambioTamaño(GLFWwindow *window, int width, int height)
 	w_width = width;
 	camara();
 
-	//esto é solo para que non me salte un foquin warn
+	// esto é solo para que non me salte un foquin warn
 	(void)window;
 }
 
@@ -734,7 +496,6 @@ int main()
 	cargarTextura(texturaCarretera, "texturas/carretera.jpg");
 	cargarTextura(texturaEsquinaCarretera, "texturas/esquina.jpg");
 	cargarTextura(texturaTronco, "texturas/tronco.jpg");
-	cargarTextura(texturaRoda, "texturas/roda.jpg");
 	cargarTextura(base.textura, "texturas/basegrua.jpg");
 	cargarTextura(cabina.textura, "texturas/cabina.jpg");
 	cargarTexturaPNG(ventana.textura, "texturas/ventana.png");
@@ -789,48 +550,67 @@ void entradaTeclado(GLFWwindow *window)
 	{
 		if (dist_camara < 200.0f)
 			dist_camara += 1.0f;
-	}
-	if (glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS)
+	} // Pitch control (nose up/down)
+	
+	if (glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS)
 	{
-
-		if (base.velocidad < VEL_MAX)
-		{
-			base.velocidad += ACEL;
-		}
+		if (pitch < MAX_PITCH)
+			pitch += PITCH_SPEED;
 	}
-	else if (glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS)
+	else if (glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS)
 	{
-
-		if (base.velocidad > REV_MAX)
-		{
-			base.velocidad -= ACEL;
-		}
+		if (pitch > -MAX_PITCH)
+			pitch -= PITCH_SPEED;
 	}
 	else
 	{
+		// Auto-level pitch
+		if (pitch > 0)
+			pitch -= PITCH_SPEED;
+		else if (pitch < 0)
+			pitch += PITCH_SPEED;
+	}
+
+	// Roll control (bank left/right)
+	if (glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS)
+	{
+		if (roll < MAX_ROLL)
+			roll += ROLL_SPEED;
+	}
+	else if (glfwGetKey(window, GLFW_KEY_A) == GLFW_PRESS)
+	{
+		if (roll > -MAX_ROLL)
+			roll -= ROLL_SPEED;
+	}
+	else
+	{
+		// Auto-level roll
+		if (roll > 0)
+			roll -= ROLL_SPEED;
+		else if (roll < 0)
+			roll += ROLL_SPEED;
+	}
+
+	// Throttle (speed control)q
+	if (glfwGetKey(window, GLFW_KEY_Q) == GLFW_PRESS)
+	{
+		if (base.velocidad < VEL_MAX)
+			base.velocidad += ACEL;
+	}
+	else if (glfwGetKey(window, GLFW_KEY_E) == GLFW_PRESS)
+	{
+		if (base.velocidad > REV_MAX)
+			base.velocidad -= ACEL;
+	}
+	else
+	{
+		// Auto slow down
 		if (base.velocidad > 1)
 			base.velocidad -= FRENADO;
 		else if (base.velocidad < -1)
 			base.velocidad += FRENADO;
 		else
 			base.velocidad = 0;
-	}
-	if (glfwGetKey(window, GLFW_KEY_A) == GLFW_PRESS)
-	{
-		if (anguloRuedaX < GIRO_MAX)
-			anguloRuedaX += VEL_GIRO;
-	}
-	else if (glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS)
-	{
-		if (anguloRuedaX > -GIRO_MAX)
-			anguloRuedaX -= VEL_GIRO;
-	}
-	else
-	{
-		if (anguloRuedaX > 0)
-			anguloRuedaX -= VEL_GIRO;
-		else if (anguloRuedaX < 0)
-			anguloRuedaX += VEL_GIRO;
 	}
 
 	if (glfwGetKey(window, GLFW_KEY_Z) == GLFW_PRESS)
@@ -876,31 +656,6 @@ void entradaTeclado(GLFWwindow *window)
 	if (glfwGetKey(window, GLFW_KEY_L) == GLFW_RELEASE)
 	{
 		mantenerTeclaL = 0;
-	}
-	if (glfwGetKey(window, GLFW_KEY_1) == GLFW_PRESS)
-	{
-		zipi += 1.0f;
-	}
-	if (glfwGetKey(window, GLFW_KEY_2) == GLFW_PRESS)
-	{
-		zipi -= 1.0f;
-	}
-	if (glfwGetKey(window, GLFW_KEY_3) == GLFW_PRESS)
-	{
-		zape += 1.0f;
-	}
-	if (glfwGetKey(window, GLFW_KEY_4) == GLFW_PRESS)
-	{
-		zape -= 1.0f;
-	}
-
-	if (glfwGetKey(window, GLFW_KEY_Q) == GLFW_PRESS)
-	{
-		base.posicion.y += 0.1f;
-	}
-	if (glfwGetKey(window, GLFW_KEY_E) == GLFW_PRESS)
-	{
-		base.posicion.y -= 0.1f;
 	}
 
 	if (glfwGetKey(window, GLFW_KEY_LEFT) == GLFW_PRESS)
