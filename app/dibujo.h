@@ -17,7 +17,6 @@ void CuadradoXZEsquina();
 
 
 
-
 //Normales, texturas, vertices
 //360 triangulos 1080
 

@@ -1,7 +1,7 @@
 //! ----------
 //? *  Grúa  *
 //! ----------
-// todo: textura basegrua é un pouco fea, a farola non ten luz (podela quitar lol)
+// todo: textura baseavion é un pouco fea, a farola non ten luz (podela quitar lol)
 //  e bueno mete comentarios e tal. e é un pouco chapuza ter un VAO separado para cada tipo de cuadrado XZ
 
 //* Autor: Manuel Pereiro Conde
@@ -26,30 +26,23 @@ using namespace std;
 #define pi 3.14159265359
 #define MAP_LIMIT 999999999
 
-//? constantes grua
+//? constantes avion
 #define VEL_MAX 60
 #define ACEL .5
 #define FRENADO 0.005
 #define REV_MAX -10
-#define GIRO_MAX 60
-#define VEL_GIRO 1
-#define AMORTIGUACION 0.9f
-#define INCLIN_MAX 30.0f
-#define VEL_INCLIN 1.0f
 #define MAX_PITCH 30.0f
 #define MAX_ROLL 45.0f
-#define MAX_YAW 90.0f
 #define PITCH_SPEED .4f
 #define ROLL_SPEED 1.0f
-#define YAW_SPEED 1.5f
-#define YAW_BANK_EFFECT 0.2f
 
-//? variables grua
+//? variables avion
 float velocidad = 0;
 float ang_giro = 0;
 float pitch = 0.0f; // rotation around X-axis
 float yaw = 0.0f;	// rotation around Y-axis
 float roll = 0.0f;	// rotation around Z-axis
+
 //? variables camara
 int tipoCamara = 0; // 0: perspectiva, 1: primera persona
 float alfa = 0.5;
@@ -65,21 +58,14 @@ int w_height = 900;
 int momentoDia = 0; //? 0-día, 1-tarde, 2-noche
 int luces = 0;		//? 0-apagadas, 1-cortas, 2-largas
 int mantenerTeclaT = 0, mantenerTeclaL = 0;
-float zipi = 20.0, zape = 25.0;
-GLuint numVertices;
 
 void entradaTeclado(GLFWwindow *window);
-
+chunk **chunks;
 //* texturas
 unsigned int texturaSuelo;
 unsigned int texturaCarretera;
 unsigned int texturaEsquinaCarretera;
 unsigned int texturaTronco;
-unsigned int texturaMapa;
-
-string warn, err;
-#define filename_mapa "mapa/terrenoMZ.obj"
-#define textura_mapa "mapa/texturaMZ.obj"
 
 extern GLuint setShaders(const char *nVertx, const char *nFrag);
 GLuint shaderProgram;
@@ -94,20 +80,19 @@ typedef struct
 	glm::vec3 escala;
 	unsigned int textura;
 	unsigned int VAO;
-} parteGrua;
-
-parteGrua base = {{0, 1.5, 0.5}, 0, 0, 0, 0, {4, 2, 10}, 0, 0};
-parteGrua cabina = {{0.0, 2.5, 4}, 0, 0, 0, 0, {4.0f, 3.0f, 2.0}, 0, 0};
-parteGrua ventana = {{0.0, 2.5, 4.5}, 0, 0, 0, 0, {3.9f, 1.9f, 1.9}, 0, 0};
-parteGrua faroI = {{-1.4, 0.2, 5.0}, 0, 90, 0, 0, {0.6, 0.3, 0.5}, 0, 0}; // Izquierdo
-parteGrua faroD = {{1.4, 0.2, 5.0}, 0, 90, 0, 0, {0.6, 0.3, 0.5}, 0, 0};  // Derecho
+} parteavion;
+int test;
+parteavion base = {{0, 1.5, 0.5}, 0, 0, 0, 0, {4, 2, 10}, 0, 0};
+parteavion cabina = {{0.0, 2.5, 4}, 0, 0, 0, 0, {4.0f, 3.0f, 2.0}, 0, 0};
+parteavion ventana = {{0.0, 2.5, 4.5}, 0, 0, 0, 0, {3.9f, 1.9f, 1.9}, 0, 0};
+parteavion faroI = {{-1.4, 0.2, 5.0}, 0, 90, 0, 0, {0.6, 0.3, 0.5}, 0, 0}; // Izquierdo
+parteavion faroD = {{1.4, 0.2, 5.0}, 0, 90, 0, 0, {0.6, 0.3, 0.5}, 0, 0};  // Derecho
 unsigned int VAO;
 unsigned int VAOCuadradoXZ;
 unsigned int VAOEsfera;
 unsigned int VAOCubo;
 unsigned int VAOCarretera;
 unsigned int VAOEsquina;
-unsigned int VAOMapa;
 
 float t0 = glfwGetTime();
 float t1;
@@ -217,17 +202,12 @@ void camara()
 	glUniformMatrix4fv(viewLoc, 1, GL_FALSE, glm::value_ptr(view));
 }
 
-//? --- funcións movimiento grúa ---
-//? simula a gravidade no brazo, que cae cara onde esté inclinado
-
-//? simula o xiro da grúa, que se move en función da velocidade da base
-
 //? actualiza a posición da grúa en función da velocidade e controla os límites do mapa
 void movimiento()
 {
 	if (fabs(base.rotacion) > 10)
 	{
-		yaw -= base.rotacion * 0.01;
+		yaw -= base.rotacion * 0.001 * sqrt(base.velocidad);
 	}
 	base.inclinacion = pitch;
 	base.angulo_XZ = yaw;
@@ -265,33 +245,11 @@ void cargarTextura(unsigned int &textura, const char *filename)
 	stbi_image_free(data);
 }
 
-void cargarTexturaPNG(unsigned int &textura, const char *filename)
-{
-	glGenTextures(1, &textura);
-	glBindTexture(GL_TEXTURE_2D, textura);
 
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-
-	int width, height, nrChannels;
-	unsigned char *data = stbi_load(filename, &width, &height, &nrChannels, STBI_rgb_alpha);
-	if (data)
-	{
-		glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE, data);
-		glGenerateMipmap(GL_TEXTURE_2D);
-	}
-	else
-	{
-		cout << "Error al cargar la textura" << endl;
-	}
-	stbi_image_free(data);
-}
 
 //* función que debuxa unha parte da grúa
 // precisa os punteiros ás matrices de transformación e un stack
-void dibujarParteGrua(parteGrua parte, glm::mat4 *transform, glm::mat4 *stack, int modificarStack)
+void dibujarParteavion(parteavion parte, glm::mat4 *transform, glm::mat4 *stack, int modificarStack)
 {
 	glBindTexture(GL_TEXTURE_2D, parte.textura);
 
@@ -400,19 +358,19 @@ void luzFaros()
 	}
 }
 
-void dibujarMapa(GLuint numVertices)
+void dibujarMapa(chunk *chunk)
 {
 	unsigned int transformLoc = glGetUniformLocation(shaderProgram, "model");
 
 	glUseProgram(shaderProgram);
-	glBindVertexArray(VAOMapa);
+	glBindVertexArray(chunk->VAO);
 
-	glBindTexture(GL_TEXTURE_2D, texturaMapa);
+	glBindTexture(GL_TEXTURE_2D, chunk->textura);
 
 	glm::mat4 transform = glm::mat4(1.0f); // Sin escala
-
+	transform = glm::translate(transform, glm::vec3(chunk->x * 10, 0, chunk->y * 10));
 	glUniformMatrix4fv(transformLoc, 1, GL_FALSE, glm::value_ptr(transform));
-	glDrawArrays(GL_TRIANGLES, 0, numVertices); // count = number of vertices
+	glDrawArrays(GL_TRIANGLES, 0, chunk->numVertices); // count = number of vertices
 }
 
 void display()
@@ -428,14 +386,17 @@ void display()
 	dibujarSol();
 	luzFaros();
 
-	dibujarMapa(numVertices);
+	for (int i = 0; i < 4; i++)
+	{
+		dibujarMapa(chunks[i]);
+	}
 
-	//* grua
-	dibujarParteGrua(base, &transform, &stack, 1);
-	dibujarParteGrua(cabina, &transform, &stack, 0);
-	dibujarParteGrua(ventana, &transform, &stack, 0);
-	dibujarParteGrua(faroI, &transform, &stack, 0);
-	dibujarParteGrua(faroD, &transform, &stack, 0);
+	//* avion
+	dibujarParteavion(base, &transform, &stack, 1);
+	dibujarParteavion(cabina, &transform, &stack, 0);
+	dibujarParteavion(ventana, &transform, &stack, 0);
+	dibujarParteavion(faroI, &transform, &stack, 0);
+	dibujarParteavion(faroD, &transform, &stack, 0);
 
 	//* ruedas
 	// roubaronmas en ribeira
@@ -491,6 +452,8 @@ int main()
 	glEnable(GL_BLEND);
 	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 
+	chunks = initChunks();
+
 	shaderProgram = setShaders("shader.vert", "shader.frag");
 	cargarTextura(texturaSuelo, "texturas/suelo.jpg");
 	cargarTextura(texturaCarretera, "texturas/carretera.jpg");
@@ -501,16 +464,9 @@ int main()
 	cargarTexturaPNG(ventana.textura, "texturas/ventana.png");
 	cargarTextura(faroI.textura, "texturas/faro.jpg");
 	faroD.textura = faroI.textura;
-	cargarTexturaPNG(texturaMapa, "mapa/noia.png");
-	printf("cargando mapa...\n");
-	numVertices = cargarTerrenoDesdePNG("mapa/hmap.png", &VAOMapa);
-	printf("mapa cargado! (%d vértices)", numVertices);
 
 	glUseProgram(shaderProgram);
 
-	CuadradoXZ();
-	CuadradoXZCarretera();
-	CuadradoXZEsquina();
 	dibujaEsfera();
 	dibujaCubo();
 
@@ -551,7 +507,7 @@ void entradaTeclado(GLFWwindow *window)
 		if (dist_camara < 200.0f)
 			dist_camara += 1.0f;
 	} // Pitch control (nose up/down)
-	
+
 	if (glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS)
 	{
 		if (pitch < MAX_PITCH)
