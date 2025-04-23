@@ -1,10 +1,15 @@
 #ifndef MAPA_H
 #define MAPA_H
-#define TAM_CHUNK 254
+#define TAM_CHUNK 256
 // tamaño maximo que tendrá uno de los chunks.
-//? recomendado: 254
+//? recomendado: 256
+
+#define AUMENTO 2.0f
+// factor de aumento del tamaño de los chunks (aparecen mais grandes en openGL)
 // mayor tamaño implica mayor calidad y peor rendimiento
 #include <glad/glad.h>
+
+#define MAP_NAME "coruna"
 typedef struct chunk
 {
     unsigned int VAO;
@@ -19,6 +24,8 @@ struct hmap {
     int width;
     int height;
 };
+
+extern int numChunks;
 
 // Carga un mapa desde un archivo PNG y genera un VAO con los datos del mapa.
 // archivo: Ruta al archivo PNG del heightmap.

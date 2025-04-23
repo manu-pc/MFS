@@ -27,8 +27,8 @@ using namespace std;
 #define MAP_LIMIT 1500
 
 //? constantes avion
-#define VEL_MAX 60.0f
-#define ACEL .5
+#define VEL_MAX 120.0f
+#define ACEL 1.5
 #define FRENADO 0.005
 #define REV_MAX -10.0f
 #define MAX_PITCH 30.0f
@@ -48,7 +48,7 @@ float roll = 0.0f;	// rotation around Z-axis
 int tipoCamara = 0; // 0: perspectiva, 1: primera persona
 float alfa = 0.5;
 float bbeta = 0.5;
-float dist_camara = 80.0f;
+float dist_camara = 50.0f;
 float vel_camara = 0.01f;
 
 //? variables ventana
@@ -92,7 +92,7 @@ typedef struct
 } proyectil;
 proyectil proy = {{0, 0, 0}, 0, 0};
 int test;
-parteavion base = {{0, 1.5, 0.5}, 90, 0, 0, 0, {4, 2, 10}, 0, 0};
+parteavion base = {{100, 200, 100}, 90, 0, 0, 0, {4, 2, 10}, 0, 0};
 parteavion cabina = {{0.0, 2.5, 4}, 0, 0, 0, 0, {4.0f, 3.0f, 2.0}, 0, 0};
 parteavion ventana = {{0.0, 2.5, 4.5}, 0, 0, 0, 0, {3.9f, 1.9f, 1.9}, 0, 0};
 parteavion faroI = {{-1.4, 0.2, 5.0}, 0, 90, 0, 0, {0.6, 0.3, 0.5}, 0, 0}; // Izquierdo
@@ -199,7 +199,7 @@ void camara()
 	direccion = glm::normalize(direccion);
 
 	glUseProgram(shaderProgram);
-	glm::mat4 projection = glm::perspective(glm::radians(45.0f), (float)w_width / (float)w_height, 0.1f, (float)dist_camara * 200);
+	glm::mat4 projection = glm::perspective(glm::radians(45.0f), (float)w_width / (float)w_height, 0.1f, 1500.0f);
 	unsigned int projectionLoc = glGetUniformLocation(shaderProgram, "projection");
 	glUniformMatrix4fv(projectionLoc, 1, GL_FALSE, glm::value_ptr(projection));
 	glm::vec3 cameraPos, target;
@@ -229,9 +229,9 @@ void camara()
 	if (tipoCamara == 2) //! tercera persona
 	{
 		cameraPos = glm::vec3(
-			base.posicion.x - 50 * direccion.x,
+			base.posicion.x - dist_camara * direccion.x,
 			base.posicion.y + 13,
-			base.posicion.z - 50 * direccion.z);
+			base.posicion.z - dist_camara * direccion.z);
 
 		target = glm::vec3(
 			base.posicion.x,
@@ -252,15 +252,10 @@ void camara()
 	}
 	if (tipoCamara == 4) //! arriba, mirando a grúa
 	{
-		cameraPos = glm::vec3(
-			base.posicion.x -1,
-			base.posicion.y + 1000,
-			base.posicion.z -1);
+		cameraPos = glm::vec3(base.posicion.x, 3000, base.posicion.z-1);
 
 		target = glm::vec3(
-			base.posicion.x,
-			base.posicion.y,
-			base.posicion.z);
+			base.posicion.x, 0, base.posicion.z);
 	}
 	glm::vec3 up = glm::vec3(0.0f, 1.0f, 0.0f);
 
@@ -275,7 +270,7 @@ void movimiento()
 {
 	if (fabs(base.rotacion) > 10)
 	{
-		yaw -= base.rotacion * 0.001 * sqrt(base.velocidad);
+		yaw -= base.rotacion * 0.001 * sqrt(fabs(base.velocidad));
 	}
 	base.inclinacion = pitch;
 	base.angulo_XZ = yaw;
@@ -312,8 +307,6 @@ void cargarTextura(unsigned int &textura, const char *filename)
 	}
 	stbi_image_free(data);
 }
-
-
 
 //* función que debuxa unha parte da grúa
 // precisa os punteiros ás matrices de transformación e un stack
@@ -426,8 +419,49 @@ void luzFaros()
 	}
 }
 
+
+#include <cmath> // para acos y sqrt
+
+bool esChunkVisible(chunk *chunk)
+{
+
+
+	glm::vec2 dir_camara = {sin(glm::radians(base.angulo_XZ)), cos(glm::radians(base.angulo_XZ))};
+
+	float x_camara = base.posicion.x - dist_camara * dir_camara.x;
+	float z_camara = base.posicion.z - dist_camara * dir_camara.y;
+
+	float x_chunk = chunk->x * TAM_CHUNK * AUMENTO;
+	float z_chunk = chunk->y * TAM_CHUNK * AUMENTO;
+	
+	// os chunks muy cercanos debuxanse inmediatamente para evitar que se vexan huecos
+	if (sqrt(pow(x_camara - x_chunk, 2) + pow(z_camara - z_chunk, 2)) < (1.5 * TAM_CHUNK * AUMENTO))
+		return true;
+	//se supera a distancia maxima fora
+	if (sqrt(pow(x_camara - x_chunk, 2) + pow(z_camara - z_chunk, 2)) > (6 * TAM_CHUNK * AUMENTO))
+		return false;
+
+	//comprobase se está nun radio de vision de 90º da cámara
+	float dx = x_chunk - x_camara;
+	float dz = z_chunk - z_camara;
+	glm::vec2 dir_chunk = {dx, dz};
+
+	dir_chunk = glm::normalize(dir_chunk);
+	float dot = glm::dot(dir_camara, dir_chunk);
+	float angle = acos(dot); // en radianes
+	if (angle > glm::radians(90.0f)) // 45º de ángulo de visión
+		return false;
+
+	return true;
+
+}
+
+
 void dibujarMapa(chunk *chunk)
 {
+
+	if (!esChunkVisible(chunk))
+		return;
 	unsigned int transformLoc = glGetUniformLocation(shaderProgram, "model");
 
 	glUseProgram(shaderProgram);
@@ -436,7 +470,8 @@ void dibujarMapa(chunk *chunk)
 	glBindTexture(GL_TEXTURE_2D, chunk->textura);
 
 	glm::mat4 transform = glm::mat4(1.0f); // Sin escala
-	transform = glm::translate(transform, glm::vec3(chunk->x * TAM_CHUNK, 0, chunk->y * TAM_CHUNK));
+	transform = glm::translate(transform, glm::vec3(chunk->x * TAM_CHUNK * AUMENTO, 0, chunk->y * TAM_CHUNK * AUMENTO));
+	transform = glm::scale(transform, glm::vec3(AUMENTO, AUMENTO, AUMENTO)); // Escala en X y Z
 	glUniformMatrix4fv(transformLoc, 1, GL_FALSE, glm::value_ptr(transform));
 	glDrawArrays(GL_TRIANGLES, 0, chunk->numVertices); // count = number of vertices
 }
@@ -455,7 +490,7 @@ void display()
 	luzFaros();
 	dibujarProyectil(proy);
 
-	for (int i = 0; i < 4; i++)
+	for (int i = 0; i < numChunks; i++)
 	{
 		dibujarMapa(chunks[i]);
 	}

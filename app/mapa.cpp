@@ -16,11 +16,11 @@ int numChunks;
 
 void cargarChunk(chunk *chunk, const hmap &mapa)
 {
-    printf("Cargandando chunmk %d %d\n", chunk->x, chunk->y);
+    printf("Cargando chunk %d %d\n", chunk->x, chunk->y);
     char archivo_textura[100];
-    sprintf(archivo_textura, "mapa/tiles/tex_%d_%d.png", chunk->x, chunk->y);
+    sprintf(archivo_textura, "mapas/%s/tiles/tex_%d_%d.png", MAP_NAME, chunk->x, chunk->y);
     cargarTexturaPNG(chunk->textura, archivo_textura);
-    printf("ºCargada textura %s\n", archivo_textura);
+    printf("Cargada textura %s\n", archivo_textura);
     chunk->numVertices = cargarTerrenoDesdeHMap(mapa, &(chunk->VAO), 30.0f, chunk->x, chunk->y);
 }
 
@@ -70,23 +70,23 @@ void cargarTexturaPNG(unsigned int &textura, const char *filename)
 
 chunk **initChunks()
 {
-    hmap mapa = cargarHeightmap("mapa/tiles/hmap.png");
+    char filename_mapa[100];
+    sprintf(filename_mapa, "mapas/%s/hmap.png", MAP_NAME);
+
+    hmap mapa = cargarHeightmap(filename_mapa);
 
     int tamFila = (int)sqrt(numChunks);
     chunk **chunks = new chunk *[numChunks];
-    printf("pito!\n");
     // Cargar mapa heightmap UNA vez
- 
+
     for (int i = 0; i < tamFila; i++)
     {
-        printf("Cargando chunk %d\n", i);
         for (int j = 0; j < tamFila; j++)
         {
-            printf("Cargando chunk %d %d\n", i, j);
             int idx = i * tamFila + j;
             chunks[idx] = crearChunk();
-            chunks[idx]->x = j;
-            chunks[idx]->y = i;
+            chunks[idx]->x = i;
+            chunks[idx]->y = j;
             cargarChunk(chunks[idx], mapa);
         }
     }
@@ -103,7 +103,6 @@ chunk *crearChunk()
     nuevoChunk->numVertices = 0;
     nuevoChunk->x = 0;
     nuevoChunk->y = 0;
-    printf("Creando chunk\n");
     return nuevoChunk;
 }
 
@@ -111,16 +110,29 @@ hmap cargarHeightmap(const char *archivo)
 {
     hmap mapa;
     int channels;
-    stbi_set_flip_vertically_on_load(true);
-    printf("Cargando heightmap PNG: %s\n", archivo);
+    stbi_set_flip_vertically_on_load(true); // esto voltea verticalmente
     mapa.data = stbi_load(archivo, &mapa.width, &mapa.height, &channels, STBI_grey);
-    printf("Width: %d, Height: %d, Channels: %d\n", mapa.width, mapa.height, channels);
+    printf("Width: %d, Height: %d (%d canales)\n", mapa.width, mapa.height, channels);
     if (!mapa.data)
     {
         std::cerr << "Error al cargar heightmap PNG: " << archivo << std::endl;
         exit(1);
     }
-    numChunks = ceil(mapa.width / (float)TAM_CHUNK) * ceil( mapa.height / (float)TAM_CHUNK);
+
+    // VOLTEO HORIZONTAL
+    // Recorremos cada fila y la invertimos
+    for (int y = 0; y < mapa.height; ++y)
+    {
+        for (int x = 0; x < mapa.width / 2; ++x)
+        {
+            int leftIndex = y * mapa.width + x;
+            int rightIndex = y * mapa.width + (mapa.width - 1 - x);
+            std::swap(mapa.data[leftIndex], mapa.data[rightIndex]);
+        }
+    }
+
+    numChunks = ceil(mapa.width / (float)TAM_CHUNK) * ceil(mapa.height / (float)TAM_CHUNK);
+    printf("Cargado heightmap PNG: %s. Se dividirá en %d chunks.\n", archivo, numChunks);
 
     return mapa;
 }
@@ -152,12 +164,16 @@ GLuint cargarTerrenoDesdeHMap(const hmap &mapa, GLuint *VAOMapa, float alturaMax
                 {localX, getHeight(v, z + 1), localZ + 1},
                 {localX + 1, getHeight(v + 1, z + 1), localZ + 1}};
 
-                glm::vec2 uv[] = {
-                    {localX / TAM_CHUNK, localZ / TAM_CHUNK},
-                    {(localX + 1) / TAM_CHUNK, localZ / TAM_CHUNK},
-                    {localX / TAM_CHUNK, (localZ + 1) / TAM_CHUNK},
-                    {(localX + 1) / TAM_CHUNK, (localZ + 1) / TAM_CHUNK}};
-                
+            // Antes:
+
+            // Después (ajuste mínimo, por ejemplo 0.001):
+            float epsilon = 0.001f;
+            glm::vec2 uv[] = {
+                {localX / TAM_CHUNK + epsilon, localZ / TAM_CHUNK + epsilon},
+                {(localX + 1) / TAM_CHUNK - epsilon, localZ / TAM_CHUNK + epsilon},
+                {localX / TAM_CHUNK + epsilon, (localZ + 1) / TAM_CHUNK - epsilon},
+                {(localX + 1) / TAM_CHUNK - epsilon, (localZ + 1) / TAM_CHUNK - epsilon}};
+
             auto agregarVertice = [&](int i)
             {
                 vertexData.insert(vertexData.end(), {pos[i].x, pos[i].y, pos[i].z,
