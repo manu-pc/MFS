@@ -250,6 +250,18 @@ void camara()
 			base.posicion.y + 2,
 			base.posicion.z);
 	}
+	if (tipoCamara == 4) //! arriba, mirando a grúa
+	{
+		cameraPos = glm::vec3(
+			base.posicion.x -1,
+			base.posicion.y + 1000,
+			base.posicion.z -1);
+
+		target = glm::vec3(
+			base.posicion.x,
+			base.posicion.y,
+			base.posicion.z);
+	}
 	glm::vec3 up = glm::vec3(0.0f, 1.0f, 0.0f);
 
 	glm::mat4 view = glm::lookAt(cameraPos, target, up);
@@ -424,7 +436,7 @@ void dibujarMapa(chunk *chunk)
 	glBindTexture(GL_TEXTURE_2D, chunk->textura);
 
 	glm::mat4 transform = glm::mat4(1.0f); // Sin escala
-	transform = glm::translate(transform, glm::vec3(chunk->x * 254, 0,  chunk->y * 254));
+	transform = glm::translate(transform, glm::vec3(chunk->x * TAM_CHUNK, 0, chunk->y * TAM_CHUNK));
 	glUniformMatrix4fv(transformLoc, 1, GL_FALSE, glm::value_ptr(transform));
 	glDrawArrays(GL_TRIANGLES, 0, chunk->numVertices); // count = number of vertices
 }
@@ -644,6 +656,10 @@ void entradaTeclado(GLFWwindow *window)
 	else if (glfwGetKey(window, GLFW_KEY_V) == GLFW_PRESS)
 	{
 		tipoCamara = 3;
+	}
+	else if (glfwGetKey(window, GLFW_KEY_B) == GLFW_PRESS)
+	{
+		tipoCamara = 4;
 	}
 	if (glfwGetKey(window, GLFW_KEY_UP) == GLFW_PRESS)
 		if (bbeta <= 1.5f)
