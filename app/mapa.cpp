@@ -11,11 +11,17 @@
 #include <math.h>
 #include "mapa.h"
 using namespace std;
-void cargarChunk(chunk *chunk, const char *archivo)
+void cargarChunk(chunk *chunk)
 {
-    cargarTexturaPNG(chunk->textura, "mapa/noia.png");
+    
+    
+    char archivo[100];
+    sprintf(archivo, "mapa/tiles/chunk_%d_%d.png", chunk->x, chunk->y);
+    char archivo_textura[100];
+    sprintf(archivo_textura, "mapa/tiles/tex_%d_%d.png", chunk->x, chunk->y);
+    cargarTexturaPNG(chunk->textura, archivo_textura);
     printf("cargando mapa... (textura: %s)\n", archivo);
-    chunk->numVertices = cargarTerrenoDesdePNG( "mapa/hmap.png", &(chunk->VAO), 30.0f);
+    chunk->numVertices = cargarTerrenoDesdePNG(archivo, &(chunk->VAO), 30.0f);
     printf("mapa cargado! (%d vértices)", chunk->numVertices);
 }
 
@@ -50,13 +56,11 @@ chunk **initChunks()
     {
         for (int j = 0; j < 2; j++)
         {
-            char filename[50];
-            sprintf(filename, "mapa/tiles/chunk_%d_%d.png", i, j);
-            printf("cargando chunk %d_%d\n", i, j);
+        printf("cargando chunk %d_%d\n", i, j);
             chunks[i * 2 + j] = crearChunk();
-            chunks[i * 2 + j]->x = i;
-            chunks[i * 2 + j]->y = j;
-            cargarChunk(chunks[i * 2 + j], filename);
+            chunks[i * 2 + j]->x = j;
+            chunks[i * 2 + j]->y = i;
+            cargarChunk(chunks[i * 2 + j]);
         }
     }
     return chunks;
@@ -85,7 +89,7 @@ GLuint cargarTerrenoDesdePNG(const char *archivo, GLuint *VAOMapa, float alturaM
         std::cerr << "Error al cargar heightmap PNG: " << archivo << std::endl;
         exit(1);
     }
-
+    
     std::cout << "Cargando mapa " << archivo << " (" << width << "x" << height << ")" << std::endl;
 
     for (int z = 0; z < height - 1; ++z)

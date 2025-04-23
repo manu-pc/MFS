@@ -24,17 +24,18 @@ using namespace std;
 #include "stb_image.h"
 
 #define pi 3.14159265359
-#define MAP_LIMIT 999999999
+#define MAP_LIMIT 1500
 
 //? constantes avion
-#define VEL_MAX 60
+#define VEL_MAX 60.0f
 #define ACEL .5
 #define FRENADO 0.005
-#define REV_MAX -10
+#define REV_MAX -10.0f
 #define MAX_PITCH 30.0f
 #define MAX_ROLL 45.0f
 #define PITCH_SPEED .4f
 #define ROLL_SPEED 1.0f
+#define VEL_PROY 1000.0f
 
 //? variables avion
 float velocidad = 0;
@@ -81,8 +82,17 @@ typedef struct
 	unsigned int textura;
 	unsigned int VAO;
 } parteavion;
+
+typedef struct
+{
+	glm::vec3 posicion;
+	float angulo;
+	float vel = VEL_PROY;
+	bool activo = false;
+} proyectil;
+proyectil proy = {{0, 0, 0}, 0, 0};
 int test;
-parteavion base = {{0, 1.5, 0.5}, 0, 0, 0, 0, {4, 2, 10}, 0, 0};
+parteavion base = {{0, 1.5, 0.5}, 90, 0, 0, 0, {4, 2, 10}, 0, 0};
 parteavion cabina = {{0.0, 2.5, 4}, 0, 0, 0, 0, {4.0f, 3.0f, 2.0}, 0, 0};
 parteavion ventana = {{0.0, 2.5, 4.5}, 0, 0, 0, 0, {3.9f, 1.9f, 1.9}, 0, 0};
 parteavion faroI = {{-1.4, 0.2, 5.0}, 0, 90, 0, 0, {0.6, 0.3, 0.5}, 0, 0}; // Izquierdo
@@ -131,6 +141,52 @@ void tiempo()
 		sec = 0;
 	}
 	t0 = t1;
+}
+
+void fuego(proyectil &proy, float angulo_real, float inclinacion)
+
+{
+	proy.angulo = -angulo_real + 90;
+	proy.vel = VEL_PROY;
+	proy.activo = true;
+	proy.posicion = base.posicion;
+	cout << "Proyectil disparado con ángulo real: " << angulo_real << " grados" << std::endl;
+}
+
+void dibujarProyectil(proyectil &proy)
+{
+	if (!proy.activo)
+		return;
+	glm::mat4 transform;
+	unsigned int transformLoc = glGetUniformLocation(shaderProgram, "model");
+	glBindTexture(GL_TEXTURE_2D, texturaSuelo);
+	transform = glm::mat4(1.0f);
+	transform = glm::translate(transform, proy.posicion);
+	transform = glm::scale(transform, glm::vec3(1.5, 1.5, 1.5));
+
+	glUniformMatrix4fv(transformLoc, 1, GL_FALSE, glm::value_ptr(transform));
+	glBindVertexArray(VAOCubo);
+	glDrawArrays(GL_TRIANGLES, 0, 36);
+	proy.posicion.x += proy.vel * cos(glm::radians(proy.angulo)) * tdelta;
+	proy.posicion.z += proy.vel * sin(glm::radians(proy.angulo)) * tdelta;
+	if (proy.posicion.x > MAP_LIMIT || proy.posicion.x < -MAP_LIMIT || proy.posicion.z > MAP_LIMIT || proy.posicion.z < -MAP_LIMIT)
+	{
+		proy.activo = false;
+	}
+}
+//? callback para manejar eventos del ratón
+void mouseCallback(GLFWwindow *window, int button, int action, int mods)
+{
+	if (button == GLFW_MOUSE_BUTTON_LEFT && action == GLFW_PRESS)
+	{
+		if (!proy.activo)
+		{
+
+			fuego(proy, yaw, base.inclinacion);
+			std::cout << "Articulacion2 Angulo: " << base.angulo_XZ
+					  << ", Base Angulo: " << base.angulo_XZ << std::endl;
+		}
+	}
 }
 
 //! cámara
@@ -295,10 +351,10 @@ void dibujarSol()
 		break;
 
 	case 0: // día: sol blanco-amarillento colocado arriba
-		glUniform1f(intSol, 1.0f);
+		glUniform1f(intSol, 0.2f);
 		glUniform3f(solDir, 0.0f, 1.0f, 0.0);
 		glUniform3f(colorSol, 1.0f, 0.9f, 0.8f);
-		glUniform1f(intAmb, 0.5f);
+		glUniform1f(intAmb, 0.8f);
 		glUniform3f(colorAmb, 1.0f, 1.0f, 1.0f);
 		glClearColor(0.2f, 0.5, 0.7f, 1.0f);
 
@@ -368,7 +424,7 @@ void dibujarMapa(chunk *chunk)
 	glBindTexture(GL_TEXTURE_2D, chunk->textura);
 
 	glm::mat4 transform = glm::mat4(1.0f); // Sin escala
-	transform = glm::translate(transform, glm::vec3(chunk->x * 10, 0, chunk->y * 10));
+	transform = glm::translate(transform, glm::vec3(chunk->x * 254, 0,  chunk->y * 254));
 	glUniformMatrix4fv(transformLoc, 1, GL_FALSE, glm::value_ptr(transform));
 	glDrawArrays(GL_TRIANGLES, 0, chunk->numVertices); // count = number of vertices
 }
@@ -385,6 +441,7 @@ void display()
 	movimiento();
 	dibujarSol();
 	luzFaros();
+	dibujarProyectil(proy);
 
 	for (int i = 0; i < 4; i++)
 	{
@@ -452,8 +509,11 @@ int main()
 	glEnable(GL_BLEND);
 	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 
+	printf("Cargando chunks...\n");
 	chunks = initChunks();
+	printf("Chunks cargados!\n");
 
+	glfwSetMouseButtonCallback(window, mouseCallback);
 	shaderProgram = setShaders("shader.vert", "shader.frag");
 	cargarTextura(texturaSuelo, "texturas/suelo.jpg");
 	cargarTextura(texturaCarretera, "texturas/carretera.jpg");
