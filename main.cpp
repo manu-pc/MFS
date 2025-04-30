@@ -16,7 +16,6 @@
 #include "lecturaShader_0_9.h"
 #include "dibujo.h"
 #include "mapa.h"
-#include "colores.h"
 #include <vector>
 #include <string>
 
